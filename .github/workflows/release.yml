@@ -13,6 +13,9 @@ on:
 env:
   FORCE_COLOR: true
 
+permissions:
+  contents: write
+
 jobs:
   create-tag:
     runs-on: ubuntu-22.04
