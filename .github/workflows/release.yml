@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The new version number (e.g., 1.1)"
+        description: "The new version number (e.g., 1.0.0)"
         required: true
       changelog:
         description: "The changelog for this version"
@@ -16,32 +16,36 @@ env:
 jobs:
   create-tag:
     runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
       - name: Create Git Tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v${{ github.event.inputs.version }}" || echo "Tag creation failed (possibly already exists)."
-          git push origin "v${{ github.event.inputs.version }}" || echo "Tag push failed (possibly already exists)."
+          git tag "v${{ github.event.inputs.version }}"
+          git push origin "v${{ github.event.inputs.version }}"
 
   build_windows:
     runs-on: windows-latest
     needs: create-tag
+
     strategy:
       matrix:
         build_type: [Release, Debug]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Set Release variable
         run: |
           echo "RELEASE=${{ matrix.build_type }}" >> $env:GITHUB_ENV
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
@@ -55,8 +59,9 @@ jobs:
 
       - name: Build Executable
         run: |
-          Write-Host "Release variable is set to: $env:Release"
-          if ($env:Release -eq 'Release') {
+          Write-Host "Release variable is set to: $env:RELEASE"
+
+          if ($env:RELEASE -eq 'Release') {
             nuitka `
             --assume-yes-for-downloads `
             --show-scons `
@@ -77,12 +82,12 @@ jobs:
             --include-module=unittest `
             --windows-console-mode=disable `
             --plugin-enable=pyside6 `
-            --windows-company-name="Loukious" `
+            --windows-company-name="LukiEnLive" `
             --windows-product-name="StreamLabs TikTok Stream Key Generator" `
             --windows-file-version="${{ github.event.inputs.version }}" `
             --windows-product-version="${{ github.event.inputs.version }}" `
             --windows-file-description="StreamLabs TikTok Stream Key Generator" `
-            --copyright="Copyright © 2026 Loukious" `
+            --copyright="Copyright © 2026 LukiEnLive" `
             StreamLabsTikTokStreamKeyGenerator.py
           } else {
             nuitka `
@@ -108,28 +113,32 @@ jobs:
           }
 
       - name: Compress Executable
-        run: Compress-Archive -Path StreamLabsTikTokStreamKeyGenerator.dist\* -DestinationPath StreamLabsTikTokStreamKeyGenerator${{ matrix.build_type }}-win-${{ github.event.inputs.version }}.zip
+        run: |
+          Compress-Archive `
+            -Path StreamLabsTikTokStreamKeyGenerator.dist\* `
+            -DestinationPath StreamLabsTikTokStreamKeyGenerator-${{ matrix.build_type }}-win-${{ github.event.inputs.version }}.zip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.build_type }}
-          path: |
-            *.zip
+          path: "*.zip"
 
   build_macos:
     runs-on: macos-latest
     needs: create-tag
+
     strategy:
       matrix:
         architecture: [x86_64, arm64]
         build_type: [Release]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
@@ -166,18 +175,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.architecture }}
-          path: |
-            *.zip
+          path: "*.zip"
 
   build_linux:
     runs-on: ubuntu-22.04
     needs: create-tag
+
     strategy:
       matrix:
         build_type: [Release]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -207,21 +217,21 @@ jobs:
           StreamLabsTikTokStreamKeyGenerator.py
 
       - name: Compress Executable
-        run: zip -r StreamLabsTikTokStreamKeyGenerator-linux-${{ github.event.inputs.version }}.zip StreamLabsTikTokStreamKeyGenerator.dist/*
+        run: |
+          zip -r StreamLabsTikTokStreamKeyGenerator-linux-${{ github.event.inputs.version }}.zip StreamLabsTikTokStreamKeyGenerator.dist/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-
-          path: |
-            *.zip
+          name: linux
+          path: "*.zip"
 
   release:
     runs-on: ubuntu-latest
     needs: [build_linux, build_windows, build_macos]
 
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Download all artifacts
@@ -229,11 +239,12 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Create the release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: "v${{ github.event.inputs.version }}"
+          name: "v${{ github.event.inputs.version }}"
           body: ${{ github.event.inputs.changelog }}
           files: "artifacts/**/*.zip"

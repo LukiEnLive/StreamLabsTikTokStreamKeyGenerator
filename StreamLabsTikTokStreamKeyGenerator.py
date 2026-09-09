@@ -30,11 +30,8 @@ class StreamApp(QMainWindow):
         self.game_mask_id = ""
         self.init_ui()
         self.load_config()
-        
-        QTimer.singleShot(3000, lambda: [
-            self.show_donation_reminder(),
-            QTimer.singleShot(3000, self.check_updates_on_startup)
-        ])
+
+        QTimer.singleShot(3000, self.check_updates_on_startup)
 
         # Connect signals
         self.update_suggestions.connect(self.update_suggestions_list)
@@ -285,11 +282,6 @@ class StreamApp(QMainWindow):
         self.help_btn = QPushButton("Help")
         self.help_btn.clicked.connect(self.show_help)
         bottom_buttons.addWidget(self.help_btn)
-        
-        self.donate_btn = QPushButton("☕ Donate")
-        self.donate_btn.setToolTip("Support the developer")
-        self.donate_btn.clicked.connect(lambda: QDesktopServices.openUrl("https://buymeacoffee.com/loukious"))
-        bottom_buttons.addWidget(self.donate_btn)
 
         self.monitor_btn = QPushButton("Open Live Monitor")
         self.monitor_btn.clicked.connect(self.open_live_monitor)
@@ -319,7 +311,6 @@ class StreamApp(QMainWindow):
         self.stream_title.setText(data.get("title", ""))
         self.game_category.setText(data.get("game", ""))
         self.mature_checkbox.setChecked(data.get("audience_type", "0") == "1")
-        self.suppress_donation_reminder = data.get("suppress_donation_reminder", False)
 
         self.refresh_account_info()
 
@@ -328,8 +319,7 @@ class StreamApp(QMainWindow):
             "title": self.stream_title.text(),
             "game": self.game_category.text(),
             "audience_type": "1" if self.mature_checkbox.isChecked() else "0",
-            "token": self.token_entry.text(),
-            "suppress_donation_reminder": self.suppress_donation_reminder
+            "token": self.token_entry.text()
         }
         with open("config.json", "w") as file:
             json.dump(data, file)
@@ -569,36 +559,6 @@ class StreamApp(QMainWindow):
             
             if msg.exec() == QMessageBox.Yes:
                 QDesktopServices.openUrl(update_info["url"])
-
-    def show_donation_reminder(self):
-        
-        if self.suppress_donation_reminder:
-            return
-        
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Support Development")
-        msg.setText("Enjoying this app? Consider supporting its development!")
-        
-        dont_show_again = QCheckBox("Never show this message again")
-        msg.setCheckBox(dont_show_again)
-        
-        # Add buttons
-        donate_btn = msg.addButton("Donate Now", QMessageBox.AcceptRole)
-        msg.addButton(QMessageBox.Ok)
-        
-        # Make the "Donate Now" button more prominent
-        donate_btn.setStyleSheet("font-weight: bold;")
-        
-        # Execute the message box
-        msg.exec()
-        
-        if dont_show_again.isChecked():
-            self.suppress_donation_reminder = True
-            self.save_config(False)
-        # Handle button clicks
-        if msg.clickedButton() == donate_btn:
-            QDesktopServices.openUrl("https://buymeacoffee.com/loukious")
 
     def open_live_monitor(self):
         QDesktopServices.openUrl("https://livecenter.tiktok.com/live_monitor?lang=en-US")

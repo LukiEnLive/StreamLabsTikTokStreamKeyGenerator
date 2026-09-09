@@ -4,8 +4,8 @@ import requests
 
 
 class VersionChecker:
-    REPO = "Loukious/StreamlabsTikTokStreamKeyGenerator"
-    
+    REPO = "LukiEnLive/StreamLabsTikTokStreamKeyGenerator"
+
     @classmethod
     def check_update(cls):
         try:
@@ -13,9 +13,11 @@ class VersionChecker:
                 f"https://api.github.com/repos/{cls.REPO}/releases/latest",
                 timeout=5
             )
+            response.raise_for_status()
+
             release = response.json()
-            latest = release["tag_name"].lstrip('v')
-            
+            latest = release["tag_name"].lstrip("v")
+
             if version.parse(latest) > version.parse(__version__):
                 return {
                     "current": __version__,
@@ -23,5 +25,8 @@ class VersionChecker:
                     "url": release["html_url"],
                     "notes": release.get("body", "")
                 }
-        except Exception:
+
+        except (requests.RequestException, KeyError, ValueError):
             return None
+
+        return None
