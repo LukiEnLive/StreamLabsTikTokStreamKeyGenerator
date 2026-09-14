@@ -1587,12 +1587,14 @@ class StreamApp(QMainWindow):
     def check_updates_on_startup(self):
         try:
             update_info = VersionChecker.check_update()
+
             if not update_info:
                 return
+
             latest = update_info["latest"]
             current = update_info["current"]
+
             if version.parse(latest) > version.parse(current):
-                # Update button immediately changes.
                 self.update_btn.setText("Update available!")
                 self.update_btn.setObjectName("UpdateAvailableButton")
                 self.update_btn.setStyleSheet("""
@@ -1602,43 +1604,55 @@ class StreamApp(QMainWindow):
                         color: #FFFFFF;
                         font-weight: bold;
                     }
-
-                    QPushButton:hover {
-                        background-color: #89681A;
-                    }
                 """)
                 self.update_btn.setToolTip(f"Version {latest} is available")
+
         except Exception as e:
             print(f"Update check failed: {e}")
+
 
     def check_for_updates(self):
         try:
             update_info = VersionChecker.check_update()
+
         except Exception as e:
             self.show_notification("Update check failed", "error")
             print(traceback.format_exc())
             return
+
         if not update_info:
             self.show_notification("Unable to check for updates", "warning")
             return
+
         latest = update_info["latest"]
         current = update_info["current"]
+
         if version.parse(latest) > version.parse(current):
             msg = QMessageBox(self)
             msg.setWindowTitle("Update Available")
             msg.setText(
-                f"Version {latest} is available.\n\n" f"Current version: {current}"
+                f"Version {latest} is available.\n\n"
+                f"Current version: {current}"
             )
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg.button(QMessageBox.Yes).setText("Download")
-            msg.button(QMessageBox.No).setText("Later")
-            if msg.exec() == QMessageBox.Yes:
-                QDesktopServices.openUrl(update_info["url"])
+
+            open_btn = msg.addButton(
+                "Open Release",
+                QMessageBox.AcceptRole
+            )
+            msg.addButton(QMessageBox.Cancel)
+
+            msg.exec()
+
+            if msg.clickedButton() == open_btn:
+                QDesktopServices.openUrl(
+                    update_info["url"]
+                )
+
         else:
-            self.update_btn.setText("Check for Updates")
-            self.update_btn.setObjectName("UpdateButton")
-            self.update_btn.setStyleSheet("")
-            self.show_notification(f"You are using the latest version ({current})") 
+            self.show_notification(
+                f"You're up to date! (v{current})",
+                "success"
+            )
 
     def open_live_monitor(self):
         QDesktopServices.openUrl(

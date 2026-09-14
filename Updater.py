@@ -18,15 +18,16 @@ class VersionChecker:
             release = response.json()
             latest = release["tag_name"].lstrip("v")
 
-            if version.parse(latest) > version.parse(__version__):
-                return {
-                    "current": __version__,
-                    "latest": latest,
-                    "url": release["html_url"],
-                    "notes": release.get("body", "")
-                }
+            current_version = version.parse(__version__)
+            latest_version = version.parse(latest)
+
+            return {
+                "current": __version__,
+                "latest": latest,
+                "url": release["html_url"],
+                "notes": release.get("body", ""),
+                "update_available": latest_version > current_version,
+            }
 
         except (requests.RequestException, KeyError, ValueError):
             return None
-
-        return None
