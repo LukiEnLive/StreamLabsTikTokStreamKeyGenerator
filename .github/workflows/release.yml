@@ -73,6 +73,7 @@ jobs:
             --jobs=4 `
             --static-libpython=no `
             --standalone `
+            --windows-icon-from-ico=assets/LukiEnLive.ico `
             --enable-plugin=anti-bloat `
             --show-modules `
             --show-anti-bloat-changes `
@@ -86,10 +87,10 @@ jobs:
             --windows-console-mode=disable `
             --plugin-enable=pyside6 `
             --windows-company-name="LukiEnLive" `
-            --windows-product-name="StreamLabs TikTok Stream Key Generator" `
+            --windows-product-name="LukiEnLive - StreamLabs TikTok Stream Key Generator" `
             --windows-file-version="${{ github.event.inputs.version }}" `
             --windows-product-version="${{ github.event.inputs.version }}" `
-            --windows-file-description="StreamLabs TikTok Stream Key Generator" `
+            --windows-file-description="LukiEnLive - StreamLabs TikTok Stream Key Generator" `
             --copyright="Copyright © 2026 LukiEnLive" `
             StreamLabsTikTokStreamKeyGenerator.py
           } else {
