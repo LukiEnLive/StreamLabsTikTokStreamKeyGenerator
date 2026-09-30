@@ -7,6 +7,7 @@ import json
 import threading
 import traceback
 from pathlib import Path
+
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -24,18 +25,29 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSizePolicy,
     QFrame,
+    QStackedWidget,
 )
+
 from PySide6.QtCore import (
     Signal,
     QTimer,
     Qt,
     QEvent,
     QPoint,
+    QUrl,
 )
+
 from PySide6.QtGui import (
     QDesktopServices,
     QIcon,
 )
+
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineCore import (
+    QWebEnginePage,
+    QWebEngineProfile,
+)
+
 from Stream import Stream
 from TokenRetriever import TokenRetriever
 from Updater import VersionChecker
@@ -61,6 +73,7 @@ class StreamApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
+
         self.stream = None
         self.game_mask_id = ""
 
@@ -80,7 +93,9 @@ class StreamApp(QMainWindow):
 
         self.update_ui.connect(self.handle_ui_update)
         self._token_ready.connect(self._apply_token)
-        self._token_error.connect(lambda msg: QMessageBox.critical(self, "Error", msg))
+        self._token_error.connect(
+            lambda msg: QMessageBox.critical(self, "Error", msg)
+        )
         self._restore_local_btn.connect(self._do_restore_local_btn)
         self._restore_online_btn.connect(self._do_restore_online_btn)
         self._stream_start_ready.connect(self._handle_stream_started)
@@ -91,165 +106,255 @@ class StreamApp(QMainWindow):
         self._game_search_error.connect(self._handle_game_search_error)
         self._game_mask_ready.connect(self._handle_game_mask_ready)
         self._account_refresh_ready.connect(self._handle_account_refresh)
-        self._account_refresh_error.connect(self._handle_account_refresh_error)
+        self._account_refresh_error.connect(
+            self._handle_account_refresh_error
+        )
 
         self.load_config()
 
-        icon_path = Path(__file__).resolve().parent / "assets" / "LukiEnLive.ico"
+        icon_path = (
+            Path(__file__).resolve().parent
+            / "assets"
+            / "LukiEnLive.ico"
+        )
+
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
         QTimer.singleShot(3000, self.check_updates_on_startup)
 
     def init_ui(self):
-        self.setWindowTitle("LukiEnLive - StreamLabs TikTok Stream Key Generator")
+        self.setWindowTitle(
+            "LukiEnLive - StreamLabs TikTok Stream Key Generator"
+        )
         self.setMinimumSize(650, 570)
-        self.resize(700, 600)
+        self.resize(1000, 800)
+
         main_widget = QWidget()
         main_widget.setObjectName("MainWidget")
         self.setCentralWidget(main_widget)
         self.main_widget = main_widget
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(7)
         main_widget.setLayout(main_layout)
 
+        # ============================================================
+        # HEADER
+        # ============================================================
+
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(4, 2, 4, 2)
         header_layout.setSpacing(10)
-        icon_path = Path(__file__).resolve().parent / "assets" / "LukiEnLive.ico"
+
+        icon_path = (
+            Path(__file__).resolve().parent
+            / "assets"
+            / "LukiEnLive.ico"
+        )
+
         if icon_path.exists():
             logo_label = QLabel()
-            logo_label.setPixmap(QIcon(str(icon_path)).pixmap(52, 52))
+            logo_label.setPixmap(
+                QIcon(str(icon_path)).pixmap(52, 52)
+            )
             logo_label.setFixedSize(52, 52)
             header_layout.addWidget(logo_label)
-        # Brand
+
         header_text_layout = QVBoxLayout()
         header_text_layout.setSpacing(1)
+
         brand_label = QLabel("LukiEnLive")
         brand_label.setObjectName("BrandLabel")
+
         subtitle_label = QLabel("TikTok LIVE • Streamlabs")
         subtitle_label.setObjectName("SubtitleLabel")
+
         header_text_layout.addWidget(brand_label)
         header_text_layout.addWidget(subtitle_label)
+
         header_layout.addLayout(header_text_layout)
         header_layout.addStretch()
+
         # Version + update button
         version_layout = QHBoxLayout()
         version_layout.setSpacing(8)
+
         self.update_btn = QPushButton("Check for Updates")
         self.update_btn.setFixedHeight(30)
         self.update_btn.clicked.connect(self.check_for_updates)
         version_layout.addWidget(self.update_btn)
+
         version_label = QLabel(f"v{__version__}")
         version_label.setObjectName("VersionLabel")
         version_label.setAlignment(Qt.AlignVCenter)
+
         version_layout.addWidget(version_label)
         self.version_label = version_label
+
         # Theme button
         self.theme_btn = QPushButton("☀  Light mode")
         self.theme_btn.setFixedHeight(30)
         self.theme_btn.clicked.connect(self.toggle_theme)
         version_layout.addWidget(self.theme_btn)
+
         header_layout.addLayout(version_layout)
         main_layout.addLayout(header_layout)
+
+        # ============================================================
+        # STREAM STATUS
+        # ============================================================
 
         self.stream_status_bar = QFrame()
         self.stream_status_bar.setObjectName("StreamStatusBar")
         self.stream_status_bar.setFixedHeight(32)
+
         status_layout = QHBoxLayout()
         status_layout.setContentsMargins(8, 0, 8, 0)
         status_layout.addStretch()
+
         self.stream_status = QLabel()
         self.stream_status.setAlignment(Qt.AlignCenter)
         self.stream_status.setText(
             'STREAM STATUS  <span class="status-neutral">● NOT LIVE</span>'
         )
+
         status_layout.addWidget(self.stream_status)
         status_layout.addStretch()
+
         self.stream_status_bar.setLayout(status_layout)
         main_layout.addWidget(self.stream_status_bar)
 
+        # ============================================================
+        # MAIN STACK
+        # ============================================================
+
+        self.main_stack = QStackedWidget()
+        self.main_stack.setObjectName("MainStack")
+        main_layout.addWidget(self.main_stack, 1)
+
+        # ============================================================
+        # CONFIGURATION PAGE
+        # ============================================================
+
+        self.config_page = QWidget()
+        config_page_layout = QVBoxLayout()
+        config_page_layout.setContentsMargins(0, 0, 0, 0)
+        config_page_layout.setSpacing(0)
+        self.config_page.setLayout(config_page_layout)
+
         content_layout = QHBoxLayout()
         content_layout.setSpacing(8)
-        main_layout.addLayout(content_layout)
+        config_page_layout.addLayout(content_layout)
 
         left_column = QVBoxLayout()
         left_column.setSpacing(7)
         content_layout.addLayout(left_column, 1)
 
+        # ------------------------------------------------------------
+        # Token Loader
+        # ------------------------------------------------------------
+
         token_group = QGroupBox("Token Loader")
-        token_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        token_group.setSizePolicy(
+            QSizePolicy.Preferred,
+            QSizePolicy.Fixed,
+        )
         left_column.addWidget(token_group)
+
         token_layout = QVBoxLayout()
         token_layout.setContentsMargins(8, 11, 8, 8)
         token_layout.setSpacing(5)
         token_group.setLayout(token_layout)
-        # Token input
+
         token_entry_row = QHBoxLayout()
         token_entry_row.setSpacing(5)
+
         self.token_entry = QLineEdit()
-        self.token_entry.setPlaceholderText("Paste token here or load below...")
+        self.token_entry.setPlaceholderText(
+            "Paste token here or load below..."
+        )
         self.token_entry.setEchoMode(QLineEdit.Password)
         self.token_entry.setFixedHeight(30)
         self.token_entry.textChanged.connect(self.handle_token_change)
-        self.token_entry.returnPressed.connect(self.refresh_account_info)
+        self.token_entry.returnPressed.connect(
+            self.refresh_account_info
+        )
+
         token_entry_row.addWidget(self.token_entry)
-        # Eye button
+
         self.toggle_token_btn = QPushButton("👁")
         self.toggle_token_btn.setFixedSize(38, 32)
         self.toggle_token_btn.setToolTip("Show token")
-        self.toggle_token_btn.clicked.connect(self.toggle_token_visibility)
+        self.toggle_token_btn.clicked.connect(
+            self.toggle_token_visibility
+        )
+
         token_entry_row.addWidget(self.toggle_token_btn)
         token_layout.addLayout(token_entry_row)
+
         # Load buttons
         load_buttons_row = QHBoxLayout()
         load_buttons_row.setSpacing(5)
+
         self.load_local_btn = QPushButton("Load from PC")
         self.load_local_btn.setFixedHeight(30)
-        self.load_local_btn.setToolTip("Load token from Streamlabs desktop app data")
+        self.load_local_btn.setToolTip(
+            "Load token from Streamlabs desktop app data"
+        )
         self.load_local_btn.clicked.connect(self.load_local_token)
+
         load_buttons_row.addWidget(self.load_local_btn)
+
         self.load_online_btn = QPushButton("Load from Web")
         self.load_online_btn.setFixedHeight(30)
-        self.load_online_btn.setToolTip("Get token through browser login")
+        self.load_online_btn.setToolTip(
+            "Get token through browser login"
+        )
         self.load_online_btn.clicked.connect(self.fetch_online_token)
+
         load_buttons_row.addWidget(self.load_online_btn)
+
         token_layout.addLayout(load_buttons_row)
+
         # Linux Chrome path
         if platform.system() == "Linux":
             binary_row = QHBoxLayout()
             binary_row.setSpacing(5)
+
             self.binary_location_entry = QLineEdit()
             self.binary_location_entry.setPlaceholderText(
                 "Custom Chrome binary path (optional)"
             )
             self.binary_location_entry.setFixedHeight(28)
+
             binary_row.addWidget(self.binary_location_entry)
             token_layout.addLayout(binary_row)
 
         account_info_label = QLabel("Account Information")
         account_info_label.setObjectName("SectionLabel")
         token_layout.addWidget(account_info_label)
+
         account_grid = QGridLayout()
         account_grid.setHorizontalSpacing(18)
         account_grid.setVerticalSpacing(3)
 
-        # Username
         username_label = QLabel("Username:")
         username_label.setAlignment(Qt.AlignLeft)
+
         self.tiktok_username = QLabel("-")
         self.tiktok_username.setObjectName("AccountValue")
         self.tiktok_username.setAlignment(Qt.AlignLeft)
 
-        # Status
         status_label = QLabel("Status:")
+
         self.app_status = QLabel("-")
         self.app_status.setObjectName("AccountValue")
         self.app_status.setAlignment(Qt.AlignLeft)
 
-        # Can Go Live
         live_label = QLabel("Can Go Live:")
+
         self.can_go_live = QLabel("-")
         self.can_go_live.setObjectName("AccountValue")
         self.can_go_live.setAlignment(Qt.AlignLeft)
@@ -263,137 +368,316 @@ class StreamApp(QMainWindow):
         account_grid.addWidget(live_label, 2, 0)
         account_grid.addWidget(self.can_go_live, 2, 1)
 
-        # Keep labels together on the left and values clearly on the right.
         account_grid.setColumnMinimumWidth(0, 75)
         account_grid.setColumnStretch(0, 0)
         account_grid.setColumnStretch(1, 1)
 
         token_layout.addLayout(account_grid)
-        # Refresh
+
         self.refresh_btn = QPushButton("Refresh Account Info")
         self.refresh_btn.setFixedHeight(30)
-        self.refresh_btn.clicked.connect(self.refresh_account_info)
+        self.refresh_btn.clicked.connect(
+            self.refresh_account_info
+        )
+
         token_layout.addWidget(self.refresh_btn)
 
+        # ------------------------------------------------------------
+        # Stream Details
+        # ------------------------------------------------------------
+
         stream_group = QGroupBox("Stream Details")
-        stream_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        stream_group.setSizePolicy(
+            QSizePolicy.Preferred,
+            QSizePolicy.Fixed,
+        )
         left_column.addWidget(stream_group)
+
         stream_layout = QVBoxLayout()
         stream_layout.setContentsMargins(8, 8, 8, 8)
         stream_layout.setSpacing(4)
         stream_group.setLayout(stream_layout)
-        # Stream title
+
         title_label = QLabel("Stream Title:")
         title_label.setObjectName("FieldLabel")
         stream_layout.addWidget(title_label)
+
         self.stream_title = QLineEdit()
         self.stream_title.setFixedHeight(30)
         stream_layout.addWidget(self.stream_title)
-        # Game category
+
         game_label = QLabel("Game Category:")
         game_label.setObjectName("FieldLabel")
         stream_layout.addWidget(game_label)
+
         self.game_category = QLineEdit()
         self.game_category.setFixedHeight(30)
-        self.game_category.setPlaceholderText("Search a game or category...")
-        self.game_category.textChanged.connect(self.handle_game_search)
+        self.game_category.setPlaceholderText(
+            "Search a game or category..."
+        )
+        self.game_category.textChanged.connect(
+            self.handle_game_search
+        )
         self.game_category.installEventFilter(self)
+
         stream_layout.addWidget(self.game_category)
 
         self.suggestions_list = QListWidget(self.main_widget)
         self.suggestions_list.hide()
         self.suggestions_list.setFixedHeight(130)
-        self.suggestions_list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
-        self.suggestions_list.itemClicked.connect(self.handle_suggestion_selected)
+        self.suggestions_list.setVerticalScrollMode(
+            QListWidget.ScrollPerPixel
+        )
+        self.suggestions_list.itemClicked.connect(
+            self.handle_suggestion_selected
+        )
         self.suggestions_list.setObjectName("SuggestionsList")
-        # Mature checkbox
+
         self.mature_checkbox = QCheckBox("Enable mature content")
         stream_layout.addWidget(self.mature_checkbox)
 
+        # ------------------------------------------------------------
+        # Stream Control
+        # ------------------------------------------------------------
+
         control_group = QGroupBox("Stream Control")
         control_group.setMinimumWidth(300)
-        control_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        control_group.setSizePolicy(
+            QSizePolicy.Preferred,
+            QSizePolicy.Fixed,
+        )
+
         content_layout.addWidget(control_group, 1)
+
         control_layout = QVBoxLayout()
         control_layout.setContentsMargins(8, 11, 8, 8)
         control_layout.setSpacing(6)
         control_group.setLayout(control_layout)
-        # Go Live / End Live
+
         button_row = QHBoxLayout()
         button_row.setSpacing(5)
+
         self.go_live_btn = QPushButton("Go Live")
         self.go_live_btn.setObjectName("GoLiveButton")
         self.go_live_btn.setEnabled(False)
         self.go_live_btn.setFixedHeight(32)
         self.go_live_btn.clicked.connect(self.start_stream)
+
         button_row.addWidget(self.go_live_btn)
+
         self.end_live_btn = QPushButton("End Live")
         self.end_live_btn.setObjectName("EndLiveButton")
         self.end_live_btn.setEnabled(False)
         self.end_live_btn.setFixedHeight(32)
         self.end_live_btn.clicked.connect(self.end_stream)
+
         button_row.addWidget(self.end_live_btn)
+
         control_layout.addLayout(button_row)
-        # Stream URL
+
         url_label = QLabel("Stream URL:")
         url_label.setObjectName("FieldLabel")
         control_layout.addWidget(url_label)
+
         self.stream_url = QLineEdit()
         self.stream_url.setReadOnly(True)
         self.stream_url.setFixedHeight(30)
+
         control_layout.addWidget(self.stream_url)
+
         self.copy_url_btn = QPushButton("Copy URL")
         self.copy_url_btn.setFixedHeight(28)
         self.copy_url_btn.clicked.connect(
             lambda: self.copy_to_clipboard(
-                self.stream_url, self.copy_url_btn, "Copy URL"
+                self.stream_url,
+                self.copy_url_btn,
+                "Copy URL",
             )
         )
+
         control_layout.addWidget(self.copy_url_btn)
-        # Stream key
+
         key_label = QLabel("Stream Key:")
         key_label.setObjectName("FieldLabel")
         control_layout.addWidget(key_label)
+
         key_entry_row = QHBoxLayout()
         key_entry_row.setSpacing(5)
+
         self.stream_key = QLineEdit()
         self.stream_key.setReadOnly(True)
         self.stream_key.setEchoMode(QLineEdit.Password)
         self.stream_key.setFixedHeight(30)
+
         key_entry_row.addWidget(self.stream_key)
+
         self.toggle_key_btn = QPushButton("👁")
         self.toggle_key_btn.setFixedSize(38, 32)
         self.toggle_key_btn.setToolTip("Show stream key")
-        self.toggle_key_btn.clicked.connect(self.toggle_key_visibility)
+        self.toggle_key_btn.clicked.connect(
+            self.toggle_key_visibility
+        )
+
         key_entry_row.addWidget(self.toggle_key_btn)
         control_layout.addLayout(key_entry_row)
+
         self.copy_key_btn = QPushButton("Copy Key")
         self.copy_key_btn.setFixedHeight(28)
         self.copy_key_btn.clicked.connect(
             lambda: self.copy_to_clipboard(
-                self.stream_key, self.copy_key_btn, "Copy Key"
+                self.stream_key,
+                self.copy_key_btn,
+                "Copy Key",
             )
         )
+
         control_layout.addWidget(self.copy_key_btn)
+
+        self.main_stack.addWidget(self.config_page)
+
+        # ============================================================
+        # LIVE MONITOR PAGE
+        # ============================================================
+
+        self.live_monitor_page = QWidget()
+
+        monitor_layout = QVBoxLayout()
+        monitor_layout.setContentsMargins(0, 0, 0, 0)
+        monitor_layout.setSpacing(6)
+        self.live_monitor_page.setLayout(monitor_layout)
+
+        monitor_header = QHBoxLayout()
+        monitor_header.setSpacing(7)
+
+        monitor_title = QLabel("TikTok Live Monitor")
+        monitor_title.setObjectName("SectionLabel")
+
+        monitor_header.addWidget(monitor_title)
+        monitor_header.addStretch()
+
+        self.refresh_monitor_btn = QPushButton("↻ Refresh")
+        self.refresh_monitor_btn.setFixedHeight(30)
+        self.refresh_monitor_btn.setToolTip(
+            "Refresh the TikTok Live Monitor"
+        )
+        self.refresh_monitor_btn.clicked.connect(
+            self.refresh_live_monitor
+        )
+
+        monitor_header.addWidget(self.refresh_monitor_btn)
+
+        self.back_to_config_btn = QPushButton("← Back to Stream Setup")
+        self.back_to_config_btn.setFixedHeight(30)
+        self.back_to_config_btn.clicked.connect(
+            self.show_configuration
+        )
+
+        monitor_header.addWidget(self.back_to_config_btn)
+
+        monitor_layout.addLayout(monitor_header)
+
+        # Persistent WebEngine profile
+        webengine_path = (
+            Path.home()
+            / "AppData"
+            / "Local"
+            / "LukiEnLive"
+            / "StreamLabsTikTokStreamKeyGenerator"
+            / "WebEngine"
+        )
+
+        if platform.system() == "Windows":
+            webengine_path.mkdir(parents=True, exist_ok=True)
+        else:
+            webengine_path = (
+                Path.home()
+                / ".local"
+                / "share"
+                / "LukiEnLive"
+                / "StreamLabsTikTokStreamKeyGenerator"
+                / "WebEngine"
+            )
+            webengine_path.mkdir(parents=True, exist_ok=True)
+
+        self.live_monitor_profile = QWebEngineProfile(
+            "LukiEnLiveLiveMonitor",
+            self,
+        )
+
+        self.live_monitor_profile.setPersistentStoragePath(
+            str(webengine_path)
+        )
+        self.live_monitor_profile.setCachePath(
+            str(webengine_path / "cache")
+        )
+        self.live_monitor_profile.setPersistentCookiesPolicy(
+            QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
+        )
+
+        self.live_monitor_view = QWebEngineView()
+
+        self.live_monitor_page_engine = QWebEnginePage(
+            self.live_monitor_profile,
+            self.live_monitor_view,
+        )
+
+        self.live_monitor_view.setPage(
+            self.live_monitor_page_engine
+        )
+
+        self.live_monitor_view.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding,
+        )
+
+        monitor_layout.addWidget(
+            self.live_monitor_view,
+            1,
+        )
+
+        self.main_stack.addWidget(self.live_monitor_page)
+
+        # Start on configuration page
+        self.main_stack.setCurrentWidget(self.config_page)
+
+        # ============================================================
+        # BOTTOM BUTTONS
+        # ============================================================
 
         bottom_buttons = QHBoxLayout()
         bottom_buttons.setSpacing(7)
         main_layout.addLayout(bottom_buttons)
+
         self.save_btn = QPushButton("Save Config")
         self.save_btn.setFixedHeight(30)
-        self.save_btn.clicked.connect(self._on_save_config_clicked)
+        self.save_btn.clicked.connect(
+            self._on_save_config_clicked
+        )
+
         bottom_buttons.addWidget(self.save_btn)
+
         self.help_btn = QPushButton("Help")
         self.help_btn.setFixedHeight(30)
         self.help_btn.clicked.connect(self.show_help)
+
         bottom_buttons.addWidget(self.help_btn)
+
         self.monitor_btn = QPushButton("Open Live Monitor")
         self.monitor_btn.setFixedHeight(30)
-        self.monitor_btn.clicked.connect(self.open_live_monitor)
+        self.monitor_btn.clicked.connect(
+            self.open_live_monitor
+        )
+
         bottom_buttons.addWidget(self.monitor_btn)
 
+        # ============================================================
+        # NOTIFICATION
+        # ============================================================
+
         self.notification_label = QLabel(self.main_widget)
-        self.notification_label.setObjectName("NotificationLabel")
+        self.notification_label.setObjectName(
+            "NotificationLabel"
+        )
         self.notification_label.setAlignment(Qt.AlignCenter)
         self.notification_label.setFixedHeight(32)
         self.notification_label.setMinimumWidth(320)
@@ -617,6 +901,7 @@ class StreamApp(QMainWindow):
                 }
 
             """)
+
         else:
             self.setStyleSheet("""
 
@@ -835,12 +1120,14 @@ class StreamApp(QMainWindow):
                 }
 
             """)
+
         self.update_status_bar_style()
         self.update_theme_button_style()
 
     def toggle_theme(self):
         self.dark_mode = not self.dark_mode
         self.apply_styles()
+
         if self.dark_mode:
             self.theme_btn.setText("☀  Light mode")
             self.show_notification("Dark mode enabled")
@@ -911,15 +1198,22 @@ class StreamApp(QMainWindow):
     def position_suggestions(self):
         if not hasattr(self, "suggestions_list"):
             return
+
         if not self.game_category:
             return
-        # Position directly underneath the input.
+
         pos = self.game_category.mapTo(
-            self.main_widget, QPoint(0, self.game_category.height() + 2)
+            self.main_widget,
+            QPoint(0, self.game_category.height() + 2),
         )
+
         self.suggestions_list.setGeometry(
-            pos.x(), pos.y(), self.game_category.width(), 130
+            pos.x(),
+            pos.y(),
+            self.game_category.width(),
+            130,
         )
+
         self.suggestions_list.raise_()
 
     def toggle_token_visibility(self):
@@ -944,8 +1238,11 @@ class StreamApp(QMainWindow):
 
     def handle_token_change(self):
         has_token = bool(self.token_entry.text().strip())
-        is_not_live = self.stream_status.text().find("NOT LIVE") != -1
+        is_not_live = (
+            self.stream_status.text().find("NOT LIVE") != -1
+        )
         is_refreshing = not self.refresh_btn.isEnabled()
+
         self.go_live_btn.setEnabled(
             has_token
             and is_not_live
@@ -955,16 +1252,20 @@ class StreamApp(QMainWindow):
 
     def load_config(self):
         try:
-            config_path = Path(__file__).resolve().parent / "config.json"
+            config_path = (
+                Path(__file__).resolve().parent / "config.json"
+            )
 
             with open(config_path, "r", encoding="utf-8") as file:
                 data = json.load(file)
+
         except Exception:
             data = {}
 
         self.token_entry.setText(data.get("token", ""))
         self.stream_title.setText(data.get("title", ""))
         self.game_category.setText(data.get("game", ""))
+
         self.mature_checkbox.setChecked(
             data.get("audience_type", "0") == "1"
         )
@@ -973,7 +1274,6 @@ class StreamApp(QMainWindow):
             self.refresh_account_info()
 
     def _on_save_config_clicked(self):
-        """Handle Save Config button click."""
         self.save_btn.setText("Saving...")
         self.save_btn.setEnabled(False)
 
@@ -988,7 +1288,7 @@ class StreamApp(QMainWindow):
                 lambda: (
                     self.save_btn.setText("Save Config"),
                     self.save_btn.setEnabled(True),
-                )
+                ),
             )
 
         except Exception as e:
@@ -998,18 +1298,22 @@ class StreamApp(QMainWindow):
             QMessageBox.critical(
                 self,
                 "Save Error",
-                f"Failed to save configuration:\n{e}"
+                f"Failed to save configuration:\n{e}",
             )
 
     def save_config(self, show_message=True):
         data = {
             "title": self.stream_title.text(),
             "game": self.game_category.text(),
-            "audience_type": "1" if self.mature_checkbox.isChecked() else "0",
+            "audience_type": (
+                "1" if self.mature_checkbox.isChecked() else "0"
+            ),
             "token": self.token_entry.text(),
         }
 
-        config_path = Path(__file__).resolve().parent / "config.json"
+        config_path = (
+            Path(__file__).resolve().parent / "config.json"
+        )
 
         with open(config_path, "w", encoding="utf-8") as file:
             json.dump(data, file, indent=4)
@@ -1020,37 +1324,63 @@ class StreamApp(QMainWindow):
     def load_account_info(self):
         if not self.stream:
             return
+
         try:
             info = self.stream.getInfo()
             self.apply_account_info(info)
+
         except Exception as e:
             QMessageBox.critical(
-                self, "Error", f"Failed to load account info: {str(e)}"
+                self,
+                "Error",
+                f"Failed to load account info: {str(e)}",
             )
 
     def apply_account_info(self, info):
         user = info.get("user", {})
         username = user.get("username", "Unknown")
+
         self.tiktok_username.setText(username)
+
         app_status = info.get("application_status", {})
         status = app_status.get("status", "Unknown")
-        self.app_status.setText(f"● {status.capitalize()}")
+
+        self.app_status.setText(
+            f"● {status.capitalize()}"
+        )
+
         if status.lower() == "approved":
-            self.app_status.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            self.app_status.setStyleSheet(
+                "color: #4CAF50; font-weight: bold;"
+            )
         elif status.lower() in ("rejected", "denied"):
-            self.app_status.setStyleSheet("color: #F44336; font-weight: bold;")
+            self.app_status.setStyleSheet(
+                "color: #F44336; font-weight: bold;"
+            )
         else:
-            self.app_status.setStyleSheet("color: #FF9800; font-weight: bold;")
+            self.app_status.setStyleSheet(
+                "color: #FF9800; font-weight: bold;"
+            )
+
         can_go_live = info.get("can_be_live", False)
-        self.can_go_live.setText("● Yes" if can_go_live else "● No")
+
+        self.can_go_live.setText(
+            "● Yes" if can_go_live else "● No"
+        )
+
         if can_go_live:
-            self.can_go_live.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            self.can_go_live.setStyleSheet(
+                "color: #4CAF50; font-weight: bold;"
+            )
         else:
-            self.can_go_live.setStyleSheet("color: #F44336; font-weight: bold;")
-        # Enable / disable stream details
+            self.can_go_live.setStyleSheet(
+                "color: #F44336; font-weight: bold;"
+            )
+
         self.stream_title.setEnabled(can_go_live)
         self.game_category.setEnabled(can_go_live)
         self.mature_checkbox.setEnabled(can_go_live)
+
         if can_go_live:
             self.go_live_btn.setEnabled(
                 self.stream_status.text().find("NOT LIVE") != -1
@@ -1060,9 +1390,14 @@ class StreamApp(QMainWindow):
 
     def refresh_account_info(self):
         token = self.token_entry.text().strip()
+
         if not token:
-            self.show_notification("No token available", "warning")
+            self.show_notification(
+                "No token available",
+                "warning",
+            )
             return
+
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("Refreshing...")
         self.go_live_btn.setEnabled(False)
@@ -1071,22 +1406,40 @@ class StreamApp(QMainWindow):
             try:
                 stream = Stream(token)
                 info = stream.getInfo()
+
                 self._account_refresh_ready.emit(info)
+
             except Exception as e:
                 self._account_refresh_error.emit(
-                    "Failed to refresh account information: " + str(e)
+                    "Failed to refresh account information: "
+                    + str(e)
                 )
 
-        threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(
+            target=_run,
+            daemon=True,
+        ).start()
 
     def _handle_account_refresh(self, info):
         try:
-            self.stream = Stream(self.token_entry.text())
+            self.stream = Stream(
+                self.token_entry.text()
+            )
+
             self.apply_account_info(info)
-            self.fetch_game_mask_id(self.game_category.text())
+            self.fetch_game_mask_id(
+                self.game_category.text()
+            )
+
             self.refresh_btn.setEnabled(True)
-            self.refresh_btn.setText("Refresh Account Info")
-            self.show_notification("Account information refreshed")
+            self.refresh_btn.setText(
+                "Refresh Account Info"
+            )
+
+            self.show_notification(
+                "Account information refreshed"
+            )
+
         except Exception as e:
             self._handle_account_refresh_error(
                 f"Failed to update account information: {str(e)}"
@@ -1094,13 +1447,29 @@ class StreamApp(QMainWindow):
 
     def _handle_account_refresh_error(self, message):
         self.refresh_btn.setEnabled(True)
-        self.refresh_btn.setText("Refresh Account Info")
-        can_go_live = self.can_go_live.text() == "● Yes"
-        is_not_live = self.stream_status.text().find("NOT LIVE") != -1
-        self.go_live_btn.setEnabled(
-            can_go_live and is_not_live and bool(self.token_entry.text())
+        self.refresh_btn.setText(
+            "Refresh Account Info"
         )
-        QMessageBox.critical(self, "Refresh Error", message)
+
+        can_go_live = (
+            self.can_go_live.text() == "● Yes"
+        )
+
+        is_not_live = (
+            self.stream_status.text().find("NOT LIVE") != -1
+        )
+
+        self.go_live_btn.setEnabled(
+            can_go_live
+            and is_not_live
+            and bool(self.token_entry.text())
+        )
+
+        QMessageBox.critical(
+            self,
+            "Refresh Error",
+            message,
+        )
 
     def _do_restore_local_btn(self):
         self.load_local_btn.setEnabled(True)
@@ -1117,12 +1486,17 @@ class StreamApp(QMainWindow):
         def _run():
             try:
                 token = self._find_local_token()
+
             except Exception as e:
                 print(traceback.format_exc())
-                self._token_error.emit(f"Unexpected error: {e}")
+                self._token_error.emit(
+                    f"Unexpected error: {e}"
+                )
                 return
+
             finally:
                 self._restore_local_btn.emit()
+
             if token:
                 self._token_ready.emit(token)
             else:
@@ -1132,95 +1506,179 @@ class StreamApp(QMainWindow):
                     "and you're logged in using TikTok."
                 )
 
-        threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(
+            target=_run,
+            daemon=True,
+        ).start()
 
     def _find_local_token(self) -> str | None:
         if platform.system() == "Windows":
             path_pattern = os.path.expandvars(
                 r"%appdata%\slobs-client\Local Storage\leveldb\*.log"
             )
+
         elif platform.system() == "Darwin":
             path_pattern = os.path.expanduser(
                 "~/Library/Application Support/slobs-client/"
                 "Local Storage/leveldb/*.log"
             )
+
         else:
             return None
-        files = sorted(glob.glob(path_pattern), key=os.path.getmtime, reverse=True)
-        token_pattern = re.compile(r'"apiToken":"([a-f0-9]+)"', re.IGNORECASE)
+
+        files = sorted(
+            glob.glob(path_pattern),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+
+        token_pattern = re.compile(
+            r'"apiToken":"([a-f0-9]+)"',
+            re.IGNORECASE,
+        )
+
         for file in files:
             try:
                 with open(file, "rb") as f:
-                    content = f.read().decode("utf-8", errors="ignore")
-                content = re.sub(r"[\x00]", "", content)
+                    content = f.read().decode(
+                        "utf-8",
+                        errors="ignore",
+                    )
+
+                content = re.sub(
+                    r"[\x00]",
+                    "",
+                    content,
+                )
+
                 matches = token_pattern.findall(content)
+
                 if matches:
                     return matches[-1]
+
             except Exception as e:
-                print(f"Error reading {file}: {e}")
+                print(
+                    f"Error reading {file}: {e}"
+                )
+
         return None
 
     def fetch_online_token(self):
         self.load_online_btn.setEnabled(False)
-        self.load_online_btn.setText("Waiting for login…")
+        self.load_online_btn.setText(
+            "Waiting for login…"
+        )
+
         retriever = TokenRetriever()
 
         def _run():
             try:
                 token = retriever.retrieve_token()
+
             except Exception as e:
                 print(traceback.format_exc())
-                self._token_error.emit(f"Unexpected error: {e}")
+                self._token_error.emit(
+                    f"Unexpected error: {e}"
+                )
                 return
+
             finally:
                 self._restore_online_btn.emit()
+
             if token:
                 self._token_ready.emit(token)
             else:
-                self._token_error.emit("Failed to obtain token online!")
+                self._token_error.emit(
+                    "Failed to obtain token online!"
+                )
 
-        threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(
+            target=_run,
+            daemon=True,
+        ).start()
 
     def _apply_token(self, token: str):
         self.token_entry.setText(token)
         self.stream = Stream(token)
         self.load_account_info()
-        self.fetch_game_mask_id(self.game_category.text())
+        self.fetch_game_mask_id(
+            self.game_category.text()
+        )
 
     def fetch_game_mask_id(self, game_name):
         self.game_mask_id = ""
+
         if not self.stream or not game_name:
             return
+
         stream = self.stream
         searched_text = game_name.strip()
 
         def _run():
             try:
-                categories = stream.search(searched_text)
+                categories = stream.search(
+                    searched_text
+                )
+
                 for category in categories:
-                    name = category.get("full_name", "").strip()
-                    if name.lower() == searched_text.lower():
+                    name = category.get(
+                        "full_name",
+                        "",
+                    ).strip()
+
+                    if (
+                        name.lower()
+                        == searched_text.lower()
+                    ):
                         self._game_mask_ready.emit(
-                            category.get("game_mask_id", ""), searched_text
+                            category.get(
+                                "game_mask_id",
+                                "",
+                            ),
+                            searched_text,
                         )
                         return
-                self._game_mask_ready.emit("", searched_text)
+
+                self._game_mask_ready.emit(
+                    "",
+                    searched_text,
+                )
+
             except Exception:
-                self._game_mask_ready.emit("", searched_text)
+                self._game_mask_ready.emit(
+                    "",
+                    searched_text,
+                )
 
-        threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(
+            target=_run,
+            daemon=True,
+        ).start()
 
-    def _handle_game_mask_ready(self, mask_id, searched_text):
-        current_text = self.game_category.text().strip()
-        if current_text.lower() != searched_text.lower():
+    def _handle_game_mask_ready(
+        self,
+        mask_id,
+        searched_text,
+    ):
+        current_text = (
+            self.game_category.text().strip()
+        )
+
+        if (
+            current_text.lower()
+            != searched_text.lower()
+        ):
             return
+
         self.game_mask_id = mask_id
 
     def handle_game_search(self, text):
         if self._ignore_next_game_search:
             self._ignore_next_game_search = False
             return
+
         text = text.strip()
+
         if not text or not self.stream:
             self._game_search_timer.stop()
             self._game_searching = False
@@ -1228,101 +1686,186 @@ class StreamApp(QMainWindow):
             self.suggestions_list.hide()
             self.game_mask_id = ""
             return
+
         self._game_search_timer.stop()
         self._game_search_timer.start()
 
     def _start_game_search(self):
         text = self.game_category.text().strip()
+
         if not text or not self.stream:
             return
+
         self._game_searching = True
         self.suggestions_list.clear()
-        self.suggestions_list.addItem("Searching...")
+        self.suggestions_list.addItem(
+            "Searching..."
+        )
         self.suggestions_list.setEnabled(False)
+
         self.position_suggestions()
         self.suggestions_list.show()
         self.suggestions_list.raise_()
+
         stream = self.stream
 
         def _run():
             try:
                 categories = stream.search(text)
-                self._game_search_ready.emit(categories, text)
+                self._game_search_ready.emit(
+                    categories,
+                    text,
+                )
+
             except Exception as e:
-                self._game_search_error.emit(f"Game search failed: {str(e)}")
+                self._game_search_error.emit(
+                    f"Game search failed: {str(e)}"
+                )
 
-        threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(
+            target=_run,
+            daemon=True,
+        ).start()
 
-    def _handle_game_search_results(self, categories, searched_text):
-        current_text = self.game_category.text().strip()
-        # Ignore stale search results.
-        if current_text.lower() != searched_text.lower():
+    def _handle_game_search_results(
+        self,
+        categories,
+        searched_text,
+    ):
+        current_text = (
+            self.game_category.text().strip()
+        )
+
+        if (
+            current_text.lower()
+            != searched_text.lower()
+        ):
             return
+
         self._game_searching = False
         self.suggestions_list.setEnabled(True)
         self.suggestions_list.clear()
+
         search_text = searched_text.lower()
-        # Remove duplicates
+
         unique_categories = {}
+
         for category in categories:
-            name = category.get("full_name", "").strip()
+            name = category.get(
+                "full_name",
+                "",
+            ).strip()
+
             if not name:
                 continue
+
             key = name.lower()
+
             if key not in unique_categories:
                 unique_categories[key] = category
-        categories = list(unique_categories.values())
 
-        # Relevance
+        categories = list(
+            unique_categories.values()
+        )
+
         def relevance(category):
-            name = category.get("full_name", "").strip()
+            name = category.get(
+                "full_name",
+                "",
+            ).strip()
+
             name_lower = name.lower()
+
             if name_lower == search_text:
                 return 0
+
             if name_lower.startswith(search_text):
                 return 1
+
             if search_text in name_lower:
                 return 2
+
             return 3
 
         categories.sort(
             key=lambda category: (
                 relevance(category),
-                category.get("full_name", "").lower(),
+                category.get(
+                    "full_name",
+                    "",
+                ).lower(),
             )
         )
-        # "Other" at bottom
+
         other_categories = [
             category
             for category in categories
-            if category.get("full_name", "").strip().lower() == "other"
+            if (
+                category.get(
+                    "full_name",
+                    "",
+                )
+                .strip()
+                .lower()
+                == "other"
+            )
         ]
+
         categories = [
             category
             for category in categories
-            if category.get("full_name", "").strip().lower() != "other"
+            if (
+                category.get(
+                    "full_name",
+                    "",
+                )
+                .strip()
+                .lower()
+                != "other"
+            )
         ]
+
         categories.extend(other_categories)
-        # Limit
         categories = categories[:8]
-        # Exact mask ID
+
         self.game_mask_id = ""
+
         for category in categories:
-            name = category.get("full_name", "").strip()
+            name = category.get(
+                "full_name",
+                "",
+            ).strip()
+
             if name.lower() == search_text:
-                self.game_mask_id = category.get("game_mask_id", "")
+                self.game_mask_id = category.get(
+                    "game_mask_id",
+                    "",
+                )
                 break
+
         if not categories:
             self.suggestions_list.hide()
             return
-        # Store categories
+
         self._game_categories.clear()
+
         for category in categories:
-            name = category.get("full_name", "").strip()
+            name = category.get(
+                "full_name",
+                "",
+            ).strip()
+
             if not name:
                 continue
-            self._game_categories[name.lower()] = category
-            self.suggestions_list.addItem(QListWidgetItem(name))
+
+            self._game_categories[
+                name.lower()
+            ] = category
+
+            self.suggestions_list.addItem(
+                QListWidgetItem(name)
+            )
+
         self.position_suggestions()
         self.suggestions_list.show()
         self.suggestions_list.raise_()
@@ -1334,143 +1877,382 @@ class StreamApp(QMainWindow):
         self.suggestions_list.clear()
         self.suggestions_list.hide()
         self.game_mask_id = ""
-        self.show_notification("Game search failed", "error")
+
+        self.show_notification(
+            "Game search failed",
+            "error",
+        )
 
     def handle_suggestion_selected(self, item):
         if not item:
             return
+
         text = item.text().strip()
+
         if not text or text == "Searching...":
             return
-        category = self._game_categories.get(text.lower())
+
+        category = self._game_categories.get(
+            text.lower()
+        )
+
         if category:
-            self.game_mask_id = category.get("game_mask_id", "")
+            self.game_mask_id = category.get(
+                "game_mask_id",
+                "",
+            )
+
         self._ignore_next_game_search = True
         self.game_category.setText(text)
         self.suggestions_list.hide()
         self.game_category.setFocus()
 
     def eventFilter(self, obj, event):
-        if obj is self.game_category and event.type() == QEvent.KeyPress:
-            if self.suggestions_list.isVisible() and self.suggestions_list.count() > 0:
+        if (
+            obj is self.game_category
+            and event.type() == QEvent.KeyPress
+        ):
+            if (
+                self.suggestions_list.isVisible()
+                and self.suggestions_list.count() > 0
+            ):
                 key = event.key()
+
                 if key == Qt.Key_Down:
-                    current = self.suggestions_list.currentRow()
-                    if current < self.suggestions_list.count() - 1:
-                        self.suggestions_list.setCurrentRow(current + 1)
+                    current = (
+                        self.suggestions_list.currentRow()
+                    )
+
+                    if (
+                        current
+                        < self.suggestions_list.count() - 1
+                    ):
+                        self.suggestions_list.setCurrentRow(
+                            current + 1
+                        )
+
                     return True
+
                 if key == Qt.Key_Up:
-                    current = self.suggestions_list.currentRow()
+                    current = (
+                        self.suggestions_list.currentRow()
+                    )
+
                     if current > 0:
-                        self.suggestions_list.setCurrentRow(current - 1)
+                        self.suggestions_list.setCurrentRow(
+                            current - 1
+                        )
+
                     return True
-                if key in (Qt.Key_Return, Qt.Key_Enter):
-                    item = self.suggestions_list.currentItem()
+
+                if key in (
+                    Qt.Key_Return,
+                    Qt.Key_Enter,
+                ):
+                    item = (
+                        self.suggestions_list.currentItem()
+                    )
+
                     if item:
-                        self.handle_suggestion_selected(item)
+                        self.handle_suggestion_selected(
+                            item
+                        )
+
                     return True
+
                 if key == Qt.Key_Escape:
                     self.suggestions_list.hide()
                     return True
+
         return super().eventFilter(obj, event)
+
+    # ================================================================
+    # STREAM CONTROL
+    # ================================================================
 
     def start_stream(self):
         if not self.stream:
-            QMessageBox.critical(self, "Error", "No Streamlabs connection available!")
+            QMessageBox.critical(
+                self,
+                "Error",
+                "No Streamlabs connection available!",
+            )
             return
+
         self.go_live_btn.setEnabled(False)
         self.end_live_btn.setEnabled(False)
         self.go_live_btn.setText("Starting...")
-        self.update_status_bar("STARTING...", "#FF9800")
+
+        self.update_status_bar(
+            "STARTING...",
+            "#FF9800",
+        )
+
         stream = self.stream
         title = self.stream_title.text()
         game_mask_id = self.game_mask_id
-        audience_type = "1" if self.mature_checkbox.isChecked() else "0"
+        audience_type = (
+            "1"
+            if self.mature_checkbox.isChecked()
+            else "0"
+        )
 
         def _run():
             try:
                 stream_url, stream_key = stream.start(
-                    title, game_mask_id, audience_type
+                    title,
+                    game_mask_id,
+                    audience_type,
                 )
+
                 if stream_url and stream_key:
-                    self._stream_start_ready.emit(stream_url, stream_key)
+                    self._stream_start_ready.emit(
+                        stream_url,
+                        stream_key,
+                    )
                 else:
-                    self._stream_start_error.emit("Failed to start stream!")
+                    self._stream_start_error.emit(
+                        "Failed to start stream!"
+                    )
+
             except Exception as e:
-                self._stream_start_error.emit(f"Failed to start stream: {str(e)}")
+                self._stream_start_error.emit(
+                    f"Failed to start stream: {str(e)}"
+                )
 
-        threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(
+            target=_run,
+            daemon=True,
+        ).start()
 
-    def _handle_stream_started(self, stream_url, stream_key):
+    def _handle_stream_started(
+        self,
+        stream_url,
+        stream_key,
+    ):
         self.stream_url.setText(stream_url)
         self.stream_key.setText(stream_key)
+
         self.go_live_btn.setText("Go Live")
         self.go_live_btn.setEnabled(False)
+
         self.end_live_btn.setText("End Live")
         self.end_live_btn.setEnabled(True)
-        self.update_status_bar("LIVE", "#4CAF50")
-        self.show_notification("Stream started successfully")
+
+        self.update_status_bar(
+            "LIVE",
+            "#4CAF50",
+        )
+
+        self.show_notification(
+            "Stream started successfully"
+        )
+
+        # Automatically show the embedded Live Monitor.
+        QTimer.singleShot(
+            300,
+            self.show_live_monitor,
+        )
 
     def _handle_stream_start_error(self, message):
         self.go_live_btn.setText("Go Live")
         self.go_live_btn.setEnabled(True)
+
         self.end_live_btn.setText("End Live")
         self.end_live_btn.setEnabled(False)
-        self.update_status_bar("NOT LIVE", "#9E9E9E")
-        QMessageBox.critical(self, "Error", message)
+
+        self.update_status_bar(
+            "NOT LIVE",
+            "#9E9E9E",
+        )
+
+        QMessageBox.critical(
+            self,
+            "Error",
+            message,
+        )
 
     def end_stream(self):
         if not self.stream:
-            QMessageBox.critical(self, "Error", "No Streamlabs connection available!")
+            QMessageBox.critical(
+                self,
+                "Error",
+                "No Streamlabs connection available!",
+            )
             return
+
         self.go_live_btn.setEnabled(False)
         self.end_live_btn.setEnabled(False)
         self.end_live_btn.setText("Ending...")
-        self.update_status_bar("ENDING...", "#FF9800")
+
+        self.update_status_bar(
+            "ENDING...",
+            "#FF9800",
+        )
+
         stream = self.stream
 
         def _run():
             try:
                 success = stream.end()
-                self._stream_end_ready.emit(success)
-            except Exception as e:
-                self._stream_end_error.emit(f"Failed to end stream: {str(e)}")
 
-        threading.Thread(target=_run, daemon=True).start()
+                self._stream_end_ready.emit(
+                    success
+                )
+
+            except Exception as e:
+                self._stream_end_error.emit(
+                    f"Failed to end stream: {str(e)}"
+                )
+
+        threading.Thread(
+            target=_run,
+            daemon=True,
+        ).start()
 
     def _handle_stream_ended(self, success):
         if success:
             self.stream_url.clear()
             self.stream_key.clear()
+
             self.go_live_btn.setText("Go Live")
-            self.go_live_btn.setEnabled(self.can_go_live.text() == "● Yes")
+            self.go_live_btn.setEnabled(
+                self.can_go_live.text() == "● Yes"
+            )
+
             self.end_live_btn.setText("End Live")
             self.end_live_btn.setEnabled(False)
-            self.update_status_bar("NOT LIVE", "#9E9E9E")
-            self.show_notification("Stream ended successfully")
+
+            self.update_status_bar(
+                "NOT LIVE",
+                "#9E9E9E",
+            )
+
+            self.show_notification(
+                "Stream ended successfully"
+            )
+
+            # Return automatically to configuration.
+            self.show_configuration()
+
         else:
             self.go_live_btn.setText("Go Live")
             self.go_live_btn.setEnabled(False)
+
             self.end_live_btn.setText("End Live")
             self.end_live_btn.setEnabled(True)
-            self.update_status_bar("LIVE", "#4CAF50")
-            QMessageBox.critical(self, "Error", "Failed to end stream!")
+
+            self.update_status_bar(
+                "LIVE",
+                "#4CAF50",
+            )
+
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Failed to end stream!",
+            )
 
     def _handle_stream_end_error(self, message):
         self.go_live_btn.setText("Go Live")
         self.go_live_btn.setEnabled(False)
+
         self.end_live_btn.setText("End Live")
         self.end_live_btn.setEnabled(True)
-        self.update_status_bar("LIVE", "#4CAF50")
-        QMessageBox.critical(self, "Error", message)
 
-    def show_notification(self, message, notification_type="success"):
+        self.update_status_bar(
+            "LIVE",
+            "#4CAF50",
+        )
+
+        QMessageBox.critical(
+            self,
+            "Error",
+            message,
+        )
+
+    # ================================================================
+    # LIVE MONITOR
+    # ================================================================
+
+    def show_live_monitor(self):
+        """
+        Show TikTok Live Monitor inside the application window.
+        """
+
+        self.suggestions_list.hide()
+
+        url = QUrl(
+            "https://livecenter.tiktok.com/live_monitor?lang=fr-FR"
+        )
+
+        current_url = (
+            self.live_monitor_view.url().toString()
+        )
+
+        if current_url != url.toString():
+            self.live_monitor_view.setUrl(url)
+
+        self.main_stack.setCurrentWidget(
+            self.live_monitor_page
+        )
+
+    def show_configuration(self):
+        """
+        Return to the normal stream configuration page.
+        """
+
+        self.main_stack.setCurrentWidget(
+            self.config_page
+        )
+
+        self.position_suggestions()
+        self.position_notification()
+
+    def refresh_live_monitor(self):
+        """
+        Reload the embedded TikTok Live Monitor.
+        """
+
+        self.live_monitor_view.reload()
+        self.show_notification(
+            "Live Monitor refreshed"
+        )
+
+    def open_live_monitor(self):
+        """
+        Open the embedded Live Monitor.
+
+        This replaces the old behavior which opened the
+        Live Monitor in the system browser.
+        """
+
+        self.show_live_monitor()
+
+    # ================================================================
+    # NOTIFICATIONS
+    # ================================================================
+
+    def show_notification(
+        self,
+        message,
+        notification_type="success",
+    ):
         if notification_type == "success":
-            self.notification_label.setText(f"✓ {message}")
+            self.notification_label.setText(
+                f"✓ {message}"
+            )
+
         elif notification_type == "warning":
-            self.notification_label.setText(f"⚠ {message}")
+            self.notification_label.setText(
+                f"⚠ {message}"
+            )
+
         else:
-            self.notification_label.setText(f"✕ {message}")
+            self.notification_label.setText(
+                f"✕ {message}"
+            )
+
         if self.dark_mode:
             if notification_type == "success":
                 self.notification_label.setStyleSheet("""
@@ -1483,6 +2265,7 @@ class StreamApp(QMainWindow):
                         padding: 4px 12px;
                     }
                 """)
+
             elif notification_type == "warning":
                 self.notification_label.setStyleSheet("""
                     QLabel#NotificationLabel {
@@ -1494,6 +2277,7 @@ class StreamApp(QMainWindow):
                         padding: 4px 12px;
                     }
                 """)
+
             else:
                 self.notification_label.setStyleSheet("""
                     QLabel#NotificationLabel {
@@ -1505,6 +2289,7 @@ class StreamApp(QMainWindow):
                         padding: 4px 12px;
                     }
                 """)
+
         else:
             if notification_type == "success":
                 self.notification_label.setStyleSheet("""
@@ -1517,6 +2302,7 @@ class StreamApp(QMainWindow):
                         padding: 4px 12px;
                     }
                 """)
+
             elif notification_type == "warning":
                 self.notification_label.setStyleSheet("""
                     QLabel#NotificationLabel {
@@ -1528,6 +2314,7 @@ class StreamApp(QMainWindow):
                         padding: 4px 12px;
                     }
                 """)
+
             else:
                 self.notification_label.setStyleSheet("""
                     QLabel#NotificationLabel {
@@ -1539,36 +2326,81 @@ class StreamApp(QMainWindow):
                         padding: 4px 12px;
                     }
                 """)
+
         self.position_notification()
+
         self.notification_label.show()
         self.notification_label.raise_()
+
         if hasattr(self, "_notification_timer"):
             self._notification_timer.stop()
+
         self._notification_timer = QTimer(self)
         self._notification_timer.setSingleShot(True)
-        self._notification_timer.timeout.connect(self.notification_label.hide)
+        self._notification_timer.timeout.connect(
+            self.notification_label.hide
+        )
         self._notification_timer.start(2500)
 
     def position_notification(self):
         if not hasattr(self, "notification_label"):
             return
+
         parent = self.main_widget
-        width = min(430, max(320, parent.width() - 30))
+
+        width = min(
+            430,
+            max(320, parent.width() - 30),
+        )
+
         height = 32
         x = (parent.width() - width) // 2
         y = parent.height() - height - 10
-        self.notification_label.setGeometry(x, y, width, height)
 
-    def copy_to_clipboard(self, widget, button, default_text):
+        self.notification_label.setGeometry(
+            x,
+            y,
+            width,
+            height,
+        )
+
+    # ================================================================
+    # CLIPBOARD / HELP
+    # ================================================================
+
+    def copy_to_clipboard(
+        self,
+        widget,
+        button,
+        default_text,
+    ):
         text = widget.text()
+
         if not text:
             button.setText("Nothing to copy")
-            QTimer.singleShot(1500, lambda: button.setText(default_text))
+
+            QTimer.singleShot(
+                1500,
+                lambda: button.setText(
+                    default_text
+                ),
+            )
+
             return
+
         QApplication.clipboard().setText(text)
+
         button.setText("✓ Copied!")
-        self.show_notification("Copied to clipboard")
-        QTimer.singleShot(1500, lambda: button.setText(default_text))
+        self.show_notification(
+            "Copied to clipboard"
+        )
+
+        QTimer.singleShot(
+            1500,
+            lambda: button.setText(
+                default_text
+            ),
+        )
 
     def show_help(self):
         help_text = """
@@ -1578,15 +2410,22 @@ class StreamApp(QMainWindow):
 4. Select your stream category
 5. Click Go Live
 """
+
         msg = QMessageBox(self)
         msg.setWindowTitle("Help")
         msg.setText(help_text)
         msg.addButton(QMessageBox.Ok)
         msg.exec()
 
+    # ================================================================
+    # UPDATES
+    # ================================================================
+
     def check_updates_on_startup(self):
         try:
-            update_info = VersionChecker.check_update()
+            update_info = (
+                VersionChecker.check_update()
+            )
 
             if not update_info:
                 return
@@ -1595,8 +2434,14 @@ class StreamApp(QMainWindow):
             current = update_info["current"]
 
             if version.parse(latest) > version.parse(current):
-                self.update_btn.setText("Update available!")
-                self.update_btn.setObjectName("UpdateAvailableButton")
+                self.update_btn.setText(
+                    "Update available!"
+                )
+
+                self.update_btn.setObjectName(
+                    "UpdateAvailableButton"
+                )
+
                 self.update_btn.setStyleSheet("""
                     QPushButton {
                         background-color: #725515;
@@ -1605,23 +2450,36 @@ class StreamApp(QMainWindow):
                         font-weight: bold;
                     }
                 """)
-                self.update_btn.setToolTip(f"Version {latest} is available")
+
+                self.update_btn.setToolTip(
+                    f"Version {latest} is available"
+                )
 
         except Exception as e:
-            print(f"Update check failed: {e}")
-
+            print(
+                f"Update check failed: {e}"
+            )
 
     def check_for_updates(self):
         try:
-            update_info = VersionChecker.check_update()
+            update_info = (
+                VersionChecker.check_update()
+            )
 
-        except Exception as e:
-            self.show_notification("Update check failed", "error")
+        except Exception:
+            self.show_notification(
+                "Update check failed",
+                "error",
+            )
+
             print(traceback.format_exc())
             return
 
         if not update_info:
-            self.show_notification("Unable to check for updates", "warning")
+            self.show_notification(
+                "Unable to check for updates",
+                "warning",
+            )
             return
 
         latest = update_info["latest"]
@@ -1629,7 +2487,10 @@ class StreamApp(QMainWindow):
 
         if version.parse(latest) > version.parse(current):
             msg = QMessageBox(self)
-            msg.setWindowTitle("Update Available")
+            msg.setWindowTitle(
+                "Update Available"
+            )
+
             msg.setText(
                 f"Version {latest} is available.\n\n"
                 f"Current version: {current}"
@@ -1637,9 +2498,12 @@ class StreamApp(QMainWindow):
 
             open_btn = msg.addButton(
                 "Open Release",
-                QMessageBox.AcceptRole
+                QMessageBox.AcceptRole,
             )
-            msg.addButton(QMessageBox.Cancel)
+
+            msg.addButton(
+                QMessageBox.Cancel
+            )
 
             msg.exec()
 
@@ -1651,19 +2515,17 @@ class StreamApp(QMainWindow):
         else:
             self.show_notification(
                 f"You're up to date! (v{current})",
-                "success"
+                "success",
             )
-
-    def open_live_monitor(self):
-        QDesktopServices.openUrl(
-            "https://livecenter.tiktok.com/live_monitor?lang=fr-FR"
-        )
 
     def handle_ui_update(self):
         self.load_account_info()
 
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
     window = StreamApp()
     window.show()
+
     sys.exit(app.exec())
