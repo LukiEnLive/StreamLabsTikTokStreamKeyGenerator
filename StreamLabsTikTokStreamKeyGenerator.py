@@ -35,6 +35,7 @@ from PySide6.QtCore import (
     QEvent,
     QPoint,
     QUrl,
+    QSettings,
 )
 
 from PySide6.QtGui import (
@@ -82,9 +83,11 @@ class StreamApp(QMainWindow):
         self._game_categories = {}
 
         self.dark_mode = True
+        self._end_from_live_monitor = False
 
         self.init_ui()
         self.apply_styles()
+        self.restore_window_geometry()
 
         self._game_search_timer = QTimer(self)
         self._game_search_timer.setSingleShot(True)
@@ -122,6 +125,36 @@ class StreamApp(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
 
         QTimer.singleShot(3000, self.check_updates_on_startup)
+
+    def restore_window_geometry(self):
+        """Restore the window size and position from the previous session."""
+        settings = QSettings(
+            "LukiEnLive",
+            "StreamLabsTikTokStreamKeyGenerator",
+        )
+
+        geometry = settings.value("window_geometry")
+
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+
+
+    def save_window_geometry(self):
+        """Save the current window size and position for the next session."""
+        settings = QSettings(
+            "LukiEnLive",
+            "StreamLabsTikTokStreamKeyGenerator",
+        )
+
+        settings.setValue(
+            "window_geometry",
+            self.saveGeometry(),
+        )
+
+
+    def closeEvent(self, event):
+        self.save_window_geometry()
+        super().closeEvent(event)
 
     def init_ui(self):
         self.setWindowTitle(
@@ -208,7 +241,7 @@ class StreamApp(QMainWindow):
 
         self.stream_status_bar = QFrame()
         self.stream_status_bar.setObjectName("StreamStatusBar")
-        self.stream_status_bar.setFixedHeight(32)
+        self.stream_status_bar.setFixedHeight(38)
 
         status_layout = QHBoxLayout()
         status_layout.setContentsMargins(8, 0, 8, 0)
@@ -217,7 +250,7 @@ class StreamApp(QMainWindow):
         self.stream_status = QLabel()
         self.stream_status.setAlignment(Qt.AlignCenter)
         self.stream_status.setText(
-            'STREAM STATUS  <span class="status-neutral">● NOT LIVE</span>'
+            'STREAM STATUS  •  NOT LIVE'
         )
 
         status_layout.addWidget(self.stream_status)
@@ -555,6 +588,19 @@ class StreamApp(QMainWindow):
         monitor_header.addWidget(monitor_title)
         monitor_header.addStretch()
 
+        self.stop_monitor_btn = QPushButton("■ Stop Live")
+        self.stop_monitor_btn.setObjectName("StopLiveMonitorButton")
+        self.stop_monitor_btn.setFixedHeight(30)
+        self.stop_monitor_btn.setToolTip(
+            "End the current TikTok LIVE"
+        )
+        self.stop_monitor_btn.clicked.connect(
+            self.end_stream_from_live_monitor
+        )
+        self.stop_monitor_btn.setEnabled(False)
+
+        monitor_header.addWidget(self.stop_monitor_btn)
+
         self.refresh_monitor_btn = QPushButton("↻ Refresh")
         self.refresh_monitor_btn.setFixedHeight(30)
         self.refresh_monitor_btn.setToolTip(
@@ -886,9 +932,27 @@ class StreamApp(QMainWindow):
                 }
 
                 QFrame#StreamStatusBar {
-                    background-color: #191919;
-                    border: 1px solid #3A3A3A;
+                    background-color: #4A4A4A;
+                    border: 1px solid #666666;
                     border-radius: 6px;
+                }
+
+                QPushButton#StopLiveMonitorButton {
+                    background-color: #B3261E;
+                    border: 1px solid #8F1D18;
+                    color: #FFFFFF;
+                    font-weight: bold;
+                    padding: 5px 12px;
+                }
+
+                QPushButton#StopLiveMonitorButton:hover {
+                    background-color: #D32F2F;
+                }
+
+                QPushButton#StopLiveMonitorButton:disabled {
+                    background-color: #777777;
+                    border-color: #666666;
+                    color: #D0D0D0;
                 }
 
                 QLabel#NotificationLabel {
@@ -1105,9 +1169,27 @@ class StreamApp(QMainWindow):
                 }
 
                 QFrame#StreamStatusBar {
-                    background-color: #FAFAFA;
-                    border: 1px solid #C8C8C8;
+                    background-color: #666666;
+                    border: 1px solid #777777;
                     border-radius: 6px;
+                }
+
+                QPushButton#StopLiveMonitorButton {
+                    background-color: #B3261E;
+                    border: 1px solid #8F1D18;
+                    color: #FFFFFF;
+                    font-weight: bold;
+                    padding: 5px 12px;
+                }
+
+                QPushButton#StopLiveMonitorButton:hover {
+                    background-color: #D32F2F;
+                }
+
+                QPushButton#StopLiveMonitorButton:disabled {
+                    background-color: #777777;
+                    border-color: #666666;
+                    color: #D0D0D0;
                 }
 
                 QLabel#NotificationLabel {
@@ -1168,27 +1250,47 @@ class StreamApp(QMainWindow):
             """)
 
     def update_status_bar(self, status, color):
+        self._current_stream_status = status
+
         self.stream_status.setText(
-            f'STREAM STATUS  <span style="color:{color};">● {status}</span>'
+            f"<b>STREAM STATUS</b>  •  <b>{status}</b>"
         )
 
+        self.update_status_bar_style()
+
     def update_status_bar_style(self):
-        if self.dark_mode:
-            self.stream_status_bar.setStyleSheet("""
-                QFrame#StreamStatusBar {
-                    background-color: #191919;
-                    border: 1px solid #3A3A3A;
-                    border-radius: 6px;
-                }
-            """)
+        status = getattr(
+            self,
+            "_current_stream_status",
+            "NOT LIVE",
+        )
+
+        if status == "LIVE":
+            background = "#218838"
+            border = "#17652A"
+        elif status in ("STARTING...", "ENDING..."):
+            background = "#B26A00"
+            border = "#8A5200"
+        elif status == "NOT LIVE":
+            background = "#555555"
+            border = "#666666"
         else:
-            self.stream_status_bar.setStyleSheet("""
-                QFrame#StreamStatusBar {
-                    background-color: #FAFAFA;
-                    border: 1px solid #C8C8C8;
-                    border-radius: 6px;
-                }
-            """)
+            background = "#555555"
+            border = "#666666"
+
+        self.stream_status_bar.setStyleSheet(f"""
+            QFrame#StreamStatusBar {{
+                background-color: {background};
+                border: 1px solid {border};
+                border-radius: 6px;
+            }}
+
+            QFrame#StreamStatusBar QLabel {{
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+        """)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -2030,14 +2132,20 @@ class StreamApp(QMainWindow):
         stream_url,
         stream_key,
     ):
+        self._end_from_live_monitor = False
         self.stream_url.setText(stream_url)
         self.stream_key.setText(stream_key)
+
+        # Automatically copy the stream key so it is ready to paste into OBS.
+        QApplication.clipboard().setText(stream_key)
 
         self.go_live_btn.setText("Go Live")
         self.go_live_btn.setEnabled(False)
 
         self.end_live_btn.setText("End Live")
         self.end_live_btn.setEnabled(True)
+        self.stop_monitor_btn.setEnabled(True)
+        self.stop_monitor_btn.setText("■ Stop Live")
 
         self.update_status_bar(
             "LIVE",
@@ -2045,7 +2153,7 @@ class StreamApp(QMainWindow):
         )
 
         self.show_notification(
-            "Stream started successfully"
+            "Stream key copied to clipboard"
         )
 
         # Automatically show the embedded Live Monitor.
@@ -2072,6 +2180,21 @@ class StreamApp(QMainWindow):
             message,
         )
 
+    def end_stream_from_live_monitor(self):
+        """End the current live without leaving the Live Monitor page."""
+        if not self.stream:
+            QMessageBox.critical(
+                self,
+                "Error",
+                "No Streamlabs connection available!",
+            )
+            return
+
+        self._end_from_live_monitor = True
+        self.stop_monitor_btn.setEnabled(False)
+        self.stop_monitor_btn.setText("Ending...")
+        self.end_stream()
+
     def end_stream(self):
         if not self.stream:
             QMessageBox.critical(
@@ -2084,6 +2207,10 @@ class StreamApp(QMainWindow):
         self.go_live_btn.setEnabled(False)
         self.end_live_btn.setEnabled(False)
         self.end_live_btn.setText("Ending...")
+
+        if self._end_from_live_monitor:
+            self.stop_monitor_btn.setEnabled(False)
+            self.stop_monitor_btn.setText("Ending...")
 
         self.update_status_bar(
             "ENDING...",
@@ -2132,10 +2259,21 @@ class StreamApp(QMainWindow):
                 "Stream ended successfully"
             )
 
-            # Return automatically to configuration.
-            self.show_configuration()
+            if self._end_from_live_monitor:
+                self._end_from_live_monitor = False
+                self.stop_monitor_btn.setEnabled(False)
+                self.stop_monitor_btn.setText("■ Stop Live")
+                self.show_live_monitor()
+            else:
+                # Return automatically to configuration.
+                self.show_configuration()
 
         else:
+            if self._end_from_live_monitor:
+                self._end_from_live_monitor = False
+                self.stop_monitor_btn.setEnabled(True)
+                self.stop_monitor_btn.setText("■ Stop Live")
+
             self.go_live_btn.setText("Go Live")
             self.go_live_btn.setEnabled(False)
 
@@ -2154,6 +2292,11 @@ class StreamApp(QMainWindow):
             )
 
     def _handle_stream_end_error(self, message):
+        if self._end_from_live_monitor:
+            self._end_from_live_monitor = False
+            self.stop_monitor_btn.setEnabled(True)
+            self.stop_monitor_btn.setText("■ Stop Live")
+
         self.go_live_btn.setText("Go Live")
         self.go_live_btn.setEnabled(False)
 
@@ -2192,6 +2335,14 @@ class StreamApp(QMainWindow):
 
         if current_url != url.toString():
             self.live_monitor_view.setUrl(url)
+
+        is_live = (
+            getattr(self, "_current_stream_status", "NOT LIVE")
+            == "LIVE"
+        )
+        self.stop_monitor_btn.setEnabled(is_live)
+        if is_live:
+            self.stop_monitor_btn.setText("■ Stop Live")
 
         self.main_stack.setCurrentWidget(
             self.live_monitor_page
